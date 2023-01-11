@@ -1,0 +1,96 @@
+﻿@page "/"
+@using System.Net.Http.Headers;
+@using LargeFileUpload.Shared;
+@using System.Net.Mime;
+@implements IDisposable
+@inject HttpClient Http
+
+<PageTitle>Index</PageTitle>
+
+<h1>Upload File</h1>
+<InputFile OnChange="@OnInputFileChange" disabled=@(executing) />
+<br/>
+<progress value="@progress" max="100" style="width: 100%; height: 5px;"></progress>
+
+@if (!executing && !String.IsNullOrEmpty(result))
+{
+    <ul>
+        <li>Result: @result</li>
+    </ul>
+}
+
+@code
+{
+    private bool executing = false;
+    private string result = String.Empty;
+    private int progress = 0;
+    private Timer progressTimer = default!;
+
+    protected override void OnInitialized()
+    {
+        progressTimer = new Timer(ProgressTimerCallback, null, Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
+
+        base.OnInitialized();
+    }
+
+    private async Task OnInputFileChange(InputFileChangeEventArgs e)
+    {
+        StartRequestProgress();
+
+        executing = true;
+        result = String.Empty;
+
+        using var content = new MultipartFormDataContent();
+
+        try
+        {
+            // Allow reading any file size.
+            var fileContent = new StreamContent(e.File.OpenReadStream(Int64.MaxValue));
+
+            fileContent.Headers.ContentType = new MediaTypeHeaderValue(MediaTypeNames.Application.Octet);
+
+            content.Add(fileContent, "\"file\"", e.File.Name);
+
+            var response = await Http.PostAsync("Filesave", content);
+
+            result = await response.Content.ReadAsStringAsync();
+        }
+        catch (Exception ex)
+        {
+            result = $"Client error: {ex}";
+        }
+        finally
+        {
+            executing = false;
+            StopRequestProgress();
+        }
+    }
+
+    public void Dispose()
+    {
+        progressTimer?.Dispose();
+    }
+
+    private void StartRequestProgress()
+    {
+        progress = 5;
+
+        progressTimer.Change(TimeSpan.Zero, TimeSpan.FromMilliseconds(500));
+    }
+
+    private void StopRequestProgress()
+    {
+        progress = 0;
+
+        progressTimer.Change(Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
+
+        StateHasChanged();
+    }
+
+    private void ProgressTimerCallback(object? state_unused)
+    {
+        progress = (progress + 5) % 100;
+
+        StateHasChanged();
+    }
+}
